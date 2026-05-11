@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ──────────────────────────────────────────────
+   Source of truth: design.md §7 Design Tokens, §8 Typography,
+   §9 Color System, §10 Spacing/Radius/Border/Elevation,
+   §12 Motion.
+
+   Dark-mode-first: the `.dark` class on <html> is the default.
+   ────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* ── Semantic color tokens (mapped from CSS custom properties) ── */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-surface: hsl(var(--surface));
+  --color-surface-raised: hsl(var(--surface-raised));
+  --color-surface-code: hsl(var(--surface-code));
+
+  --color-border-subtle: hsl(var(--border-subtle));
+  --color-border-strong: hsl(var(--border-strong));
+
+  --color-text-primary: hsl(var(--text-primary));
+  --color-text-secondary: hsl(var(--text-secondary));
+  --color-text-muted: hsl(var(--text-muted));
+  --color-text-disabled: hsl(var(--text-disabled));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-muted: hsl(var(--accent-muted));
+
+  --color-status-success: hsl(var(--success));
+  --color-status-warning: hsl(var(--warning));
+  --color-status-danger: hsl(var(--danger));
+  --color-status-info: hsl(var(--info));
+
+  --color-risk-low: hsl(var(--risk-low));
+  --color-risk-medium: hsl(var(--risk-medium));
+  --color-risk-high: hsl(var(--risk-high));
+  --color-risk-unknown: hsl(var(--risk-unknown));
+
+  /* ── Typography ────────────────────────────────────────────── */
+  --font-sans: "Inter", "Geist", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Geist Mono", "SF Mono", Consolas, monospace;
+
+  /* ── Radius (design.md §10.2) ──────────────────────────────── */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+}
+
+/* ─── Light mode (root defaults) ─────────────────────────────── */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --surface: 210 40% 98%;
+    --surface-raised: 0 0% 100%;
+    --surface-code: 220 20% 97%;
+
+    --border-subtle: 214 32% 91%;
+    --border-strong: 215 20% 75%;
+
+    --text-primary: 222 47% 11%;
+    --text-secondary: 215 16% 35%;
+    --text-muted: 215 14% 48%;
+    --text-disabled: 215 12% 62%;
+
+    --accent: 252 83% 58%;
+    --accent-muted: 252 70% 96%;
+
+    --success: 152 69% 38%;
+    --warning: 38 92% 50%;
+    --danger: 0 72% 51%;
+    --info: 217 91% 60%;
+
+    --risk-low: 152 69% 38%;
+    --risk-medium: 38 92% 50%;
+    --risk-high: 0 72% 51%;
+    --risk-unknown: 215 14% 48%;
+
+    --shadow-panel: 0 16px 40px rgba(0, 0, 0, 0.08);
+    --shadow-overlay: 0 24px 80px rgba(0, 0, 0, 0.16);
+  }
+
+  /* ─── Dark mode (primary design target) ──────────────────── */
+
+  .dark {
+    --background: 222 47% 4%;
+    --foreground: 210 40% 98%;
+
+    --surface: 222 36% 6%;
+    --surface-raised: 222 32% 8%;
+    --surface-code: 225 38% 5%;
+
+    --border-subtle: 220 25% 14%;
+    --border-strong: 220 20% 22%;
+
+    --text-primary: 210 40% 98%;
+    --text-secondary: 214 20% 78%;
+    --text-muted: 215 14% 60%;
+    --text-disabled: 215 10% 45%;
+
+    --accent: 252 83% 66%;
+    --accent-muted: 252 30% 16%;
+
+    --success: 151 65% 45%;
+    --warning: 38 92% 56%;
+    --danger: 0 72% 60%;
+    --info: 217 91% 65%;
+
+    --shadow-panel: 0 16px 40px rgba(0, 0, 0, 0.32);
+    --shadow-overlay: 0 24px 80px rgba(0, 0, 0, 0.48);
+  }
+
+  /* ─── Global resets ──────────────────────────────────────── */
+
+  * {
+    border-color: hsl(var(--border-subtle));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ─── Motion: respect reduced-motion preference ──────────── */
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ─── Skeleton animation ─────────────────────────────────────── */
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--surface)) 25%,
+    hsl(var(--surface-raised)) 50%,
+    hsl(var(--surface)) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
