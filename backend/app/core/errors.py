@@ -10,19 +10,43 @@ from app.core.logging import logger
 
 
 # ── Typed error response schema ─────────────────────────────────
+#
+# Every failing endpoint returns this exact envelope:
+#
+#   {
+#     "error": {
+#       "code": "NOT_FOUND",
+#       "message": "Repository 'repo_abc' was not found.",
+#       "requestId": "req_a1b2c3d4e5f6g7h8i9j0",
+#       "retryable": false,
+#       "details": {}
+#     }
+#   }
 
 
-class APIErrorBody(BaseModel):
-    """Standard error envelope returned by every failing endpoint.
+class APIErrorDetail(BaseModel):
+    """Inner error payload."""
 
-    This shape is documented in the OpenAPI spec so frontend clients
-    can rely on it for typed error handling.
+    code: str
+    message: str
+    requestId: str
+    retryable: bool
+    details: Dict[str, Any] = {}
+
+
+class APIErrorEnvelope(BaseModel):
+    """Top-level error envelope wrapping the error detail.
+
+    Frontend clients rely on this exact shape for typed error
+    handling across every endpoint.
     """
 
-    error_code: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
-    trace_id: Optional[str] = None
+    error: APIErrorDetail
+
+
+# ── Retryable status codes ──────────────────────────────────────
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 
 # ── Base exception hierarchy ────────────────────────────────────
@@ -31,8 +55,8 @@ class APIErrorBody(BaseModel):
 class BaseAPIException(Exception):
     """Root of the application exception hierarchy.
 
-    Subclass this for domain-specific errors.  The global handler will
-    serialize them into :class:`APIErrorBody`.
+    Subclass this for domain-specific errors.  The global exception
+    handlers serialize them into :class:`APIErrorEnvelope`.
     """
 
     def __init__(
@@ -40,12 +64,15 @@ class BaseAPIException(Exception):
         status_code: int,
         error_code: str,
         message: str,
+        retryable: Optional[bool] = None,
         details: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.status_code = status_code
         self.error_code = error_code
         self.message = message
-        self.details = details
+        # Default: retryable if status code is in the retryable set
+        self.retryable = retryable if retryable is not None else (status_code in _RETRYABLE_STATUS_CODES)
+        self.details = details or {}
         super().__init__(message)
 
 
@@ -55,22 +82,38 @@ class NotFoundError(BaseAPIException):
             status_code=404,
             error_code="NOT_FOUND",
             message=f"{resource} '{identifier}' was not found.",
+            retryable=False,
         )
 
 
 class ConflictError(BaseAPIException):
     def __init__(self, message: str, error_code: str = "CONFLICT") -> None:
-        super().__init__(status_code=409, error_code=error_code, message=message)
+        super().__init__(
+            status_code=409,
+            error_code=error_code,
+            message=message,
+            retryable=False,
+        )
 
 
 class ForbiddenError(BaseAPIException):
     def __init__(self, message: str = "You do not have permission to perform this action.") -> None:
-        super().__init__(status_code=403, error_code="FORBIDDEN", message=message)
+        super().__init__(
+            status_code=403,
+            error_code="FORBIDDEN",
+            message=message,
+            retryable=False,
+        )
 
 
 class UnauthorizedError(BaseAPIException):
     def __init__(self, message: str = "Authentication required.") -> None:
-        super().__init__(status_code=401, error_code="UNAUTHORIZED", message=message)
+        super().__init__(
+            status_code=401,
+            error_code="UNAUTHORIZED",
+            message=message,
+            retryable=False,
+        )
 
 
 class ValidationError(BaseAPIException):
@@ -79,13 +122,42 @@ class ValidationError(BaseAPIException):
             status_code=422,
             error_code="VALIDATION_ERROR",
             message=message,
+            retryable=False,
             details=details,
         )
 
 
 class RateLimitedError(BaseAPIException):
     def __init__(self, error_code: str = "RATE_LIMITED", message: str = "Too many requests.") -> None:
-        super().__init__(status_code=429, error_code=error_code, message=message)
+        super().__init__(
+            status_code=429,
+            error_code=error_code,
+            message=message,
+            retryable=True,
+        )
+
+
+# ── Helpers ─────────────────────────────────────────────────────
+
+
+def _build_error_envelope(
+    code: str,
+    message: str,
+    request_id: str,
+    retryable: bool,
+    details: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the canonical error response dict."""
+    envelope = APIErrorEnvelope(
+        error=APIErrorDetail(
+            code=code,
+            message=message,
+            requestId=request_id,
+            retryable=retryable,
+            details=details,
+        )
+    )
+    return envelope.model_dump()
 
 
 # ── Exception handlers ──────────────────────────────────────────
@@ -93,23 +165,26 @@ class RateLimitedError(BaseAPIException):
 
 async def api_exception_handler(request: Request, exc: BaseAPIException) -> JSONResponse:
     """Handle known application exceptions."""
-    trace_id = getattr(request.state, "request_id", None)
-    body = APIErrorBody(
-        error_code=exc.error_code,
+    request_id: str = getattr(request.state, "request_id", "unknown")
+    body = _build_error_envelope(
+        code=exc.error_code,
         message=exc.message,
+        request_id=request_id,
+        retryable=exc.retryable,
         details=exc.details,
-        trace_id=trace_id,
     )
-    return JSONResponse(status_code=exc.status_code, content=body.model_dump(exclude_none=True))
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all for unhandled exceptions.  Never leak stack traces."""
-    trace_id = getattr(request.state, "request_id", None)
-    logger.error("Unhandled exception  request_id=%s", trace_id, exc_info=exc)
-    body = APIErrorBody(
-        error_code="INTERNAL_SERVER_ERROR",
+    request_id: str = getattr(request.state, "request_id", "unknown")
+    logger.error("Unhandled exception  request_id=%s", request_id, exc_info=exc)
+    body = _build_error_envelope(
+        code="INTERNAL_SERVER_ERROR",
         message="An unexpected error occurred. If the problem persists, contact support.",
-        trace_id=trace_id,
+        request_id=request_id,
+        retryable=True,
+        details={},
     )
-    return JSONResponse(status_code=500, content=body.model_dump(exclude_none=True))
+    return JSONResponse(status_code=500, content=body)
