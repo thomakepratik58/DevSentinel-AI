@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: pgvector/pgvector:0.8.2-pg17
@@ -11,6 +9,7 @@ services:
       POSTGRES_USER: devsentinel
       POSTGRES_PASSWORD: devsentinel_local
       POSTGRES_DB: devsentinel
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

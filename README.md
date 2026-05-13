@@ -96,12 +96,33 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
+
+# Run database migrations
+alembic upgrade head
+
 uvicorn app.main:app --reload --port 8000
 ```
 
 - API root: http://localhost:8000
 - Interactive docs: http://localhost:8000/api/v1/docs
 - Health check: http://localhost:8000/api/v1/health
+
+### Database Management
+
+To create a new migration after changing models:
+```sh
+alembic revision --autogenerate -m "Description of changes"
+```
+
+To upgrade to the latest migration:
+```sh
+alembic upgrade head
+```
+
+To rollback one migration:
+```sh
+alembic downgrade -1
+```
 
 ### 4. Start the frontend
 
@@ -154,7 +175,7 @@ GET /api/v1/health
 }
 ```
 
-## Current Status (Milestone 1)
+## Current Status (Milestone 2)
 
 ### Implemented
 
@@ -174,11 +195,15 @@ GET /api/v1/health
 - Landing page with product preview, feature grid, and trust section
 - Dashboard overview with metric cards, empty states, and system health panel
 - Shared `.env.example` with configurable AI model names and runtime documentation
+- SQLAlchemy async database engine and declarative base
+- PostgreSQL-ready schema mapping all core domain concepts (Workspaces, Repositories, Incidents, Analysis Runs)
+- UUID primary keys, timestamp mixins, and robust foreign keys
+- Alembic migration environment initialized
+- Repository and service layer foundation
 
 ### Intentionally Deferred
 
 - Authentication (JWT, sessions, GitHub OAuth)
-- Database schema and migrations (SQLAlchemy + Alembic)
 - Repository import and code indexing
 - Tree-sitter semantic parsing
 - Celery background workers
