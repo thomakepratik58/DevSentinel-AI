@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     BACKEND_URL: str = "http://localhost:8000"
 
     # ── Database ─────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+psycopg://devsentinel:devsentinel_local@localhost:5432/devsentinel"
+    DATABASE_URL: str = "postgresql+psycopg://devsentinel:devsentinel_local@localhost:5433/devsentinel"
 
     # ── Redis ────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
