@@ -1,12 +1,14 @@
-# DevSentinel AI — Backend dependencies (Milestone 2)
-# Pinned for reproducibility.
+# DevSentinel AI — Backend dependencies (Milestone 3)
+# Pinned for reproducibility on Python 3.10 / Windows.
 
 # ── Web framework ────────────────────────────────────────────────
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 pydantic==2.11.3
 pydantic-settings==2.9.1
+pydantic[email]==2.11.3
 python-dotenv==1.1.0
+python-multipart==0.0.20
 
 # ── Database ─────────────────────────────────────────────────────
 sqlalchemy[asyncio]==2.0.41
@@ -17,3 +19,12 @@ alembic==1.16.1
 # ── pgvector ─────────────────────────────────────────────────────
 pgvector==0.4.1
 numpy==1.26.4
+
+# ── Authentication ───────────────────────────────────────────────
+argon2-cffi==23.1.0
+PyJWT==2.10.1
+
+# ── Rate limiting ─────────────────────────────────────────────────
+slowapi==0.1.9
+limits==3.14.0
+redis==7.4.0
