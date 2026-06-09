@@ -26,7 +26,13 @@ from app.api.v1.schemas.auth import (
     UserResponse,
 )
 from app.core.config import settings
-from app.core.rate_limits import AUTH_ENDPOINT_LIMIT, TOKEN_REFRESH_LIMIT, limiter
+from app.core.rate_limits import (
+    AUTH_LOGIN_LIMIT,
+    AUTH_REGISTER_LIMIT,
+    TOKEN_REFRESH_LIMIT,
+    get_login_key,
+    limiter,
+)
 from app.db.engine import get_db
 from app.services.user_service import AuthService
 
@@ -75,7 +81,7 @@ def _clear_refresh_cookie(response: Response) -> None:
         "Returns an access token and sets a refresh-token cookie."
     ),
 )
-@limiter.limit(AUTH_ENDPOINT_LIMIT)
+@limiter.limit(AUTH_REGISTER_LIMIT)
 async def register(
     request: Request,
     response: Response,
@@ -108,7 +114,7 @@ async def register(
         "Returns a short-lived access token and sets a rotating refresh-token cookie."
     ),
 )
-@limiter.limit(AUTH_ENDPOINT_LIMIT)
+@limiter.limit(AUTH_LOGIN_LIMIT, key_func=get_login_key)
 async def login(
     request: Request,
     response: Response,

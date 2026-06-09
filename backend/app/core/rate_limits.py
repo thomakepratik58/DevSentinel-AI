@@ -13,6 +13,7 @@ the app starts even if Redis is temporarily unavailable.
 
 from __future__ import annotations
 
+from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -43,6 +44,23 @@ except Exception:  # pragma: no cover — only fires when Redis is unreachable
 # Import these constants in route decorators instead of inline strings
 # to keep limit values in one place and easy to audit.
 #
-AUTH_ENDPOINT_LIMIT = "5/minute"
+AUTH_LOGIN_LIMIT = "5/15minute"
+AUTH_REGISTER_LIMIT = "3/hour"
 TOKEN_REFRESH_LIMIT = "10/minute"
 GENERAL_API_LIMIT = "60/minute"
+
+def get_login_key(request: Request) -> str:
+    """Rate limit by IP + email."""
+    from slowapi.util import get_remote_address
+    import json
+    
+    ip = get_remote_address(request)
+    try:
+        if hasattr(request, "_body"):
+            body = request._body
+            email = json.loads(body).get("email", "unknown")
+        else:
+            email = "unknown"
+    except Exception:
+        email = "unknown"
+    return f"{ip}:{email}"

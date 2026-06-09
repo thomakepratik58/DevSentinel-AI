@@ -202,6 +202,13 @@ class AuthService:
         record = await self._user_repo.find_valid_refresh_token(token_hash)
 
         if record is None:
+            # Check if this was a previously-valid token (reuse detection)
+            revoked = await self._user_repo.find_revoked_refresh_token(token_hash)
+            if revoked is not None:
+                # Token replay attack — nuke all sessions
+                await self._user_repo.revoke_all_user_tokens(revoked.user_id)
+                await self._session.commit()
+                logger.warning("token_replay_detected  user_id=%s", revoked.user_id)
             raise UnauthorizedError(
                 "Refresh token is invalid or has expired. Please sign in again."
             )

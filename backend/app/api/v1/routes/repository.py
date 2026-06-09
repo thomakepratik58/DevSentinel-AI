@@ -19,28 +19,13 @@ from app.api.v1.schemas.repository import (
 )
 from app.core.errors import ConflictError, NotFoundError
 from app.db.engine import get_db
+from app.models.enums import WorkspaceRole
 from app.repositories.repository_repo import RepositoryRepository
-from app.repositories.workspace_repo import WorkspaceRepository
 
 router = APIRouter()
 
 
-# ── Helpers ──────────────────────────────────────────────────────
-
-
-async def _verify_workspace_membership(
-    workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
-    db: AsyncSession,
-) -> None:
-    """Raise NotFoundError if the user is not a member of the workspace."""
-    ws_repo = WorkspaceRepository(db)
-    ws = await ws_repo.get_workspace_for_user(workspace_id, user_id)
-    if ws is None:
-        raise NotFoundError("Workspace", str(workspace_id))
-
-
-# ── GET /workspaces/{workspace_id}/repositories ─────────────────
+from app.api.v1.dependencies.rbac import require_role
 
 
 @router.get(
@@ -50,10 +35,11 @@ async def _verify_workspace_membership(
 )
 async def list_repositories(
     workspace_id: uuid.UUID,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER, WorkspaceRole.VIEWER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> RepositoryListResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = RepositoryRepository(db)
     repositories = await repo.list_repositories_for_workspace(workspace_id)
     return RepositoryListResponse(
@@ -75,10 +61,11 @@ async def list_repositories(
 async def get_repository(
     workspace_id: uuid.UUID,
     repository_id: uuid.UUID,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER, WorkspaceRole.VIEWER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> RepositoryResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = RepositoryRepository(db)
     record = await repo.get_repository_for_workspace(repository_id, workspace_id)
     if record is None:
@@ -102,10 +89,11 @@ async def get_repository(
 async def create_repository(
     workspace_id: uuid.UUID,
     payload: CreateRepositoryRequest,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> RepositoryResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = RepositoryRepository(db)
 
     # Check for duplicate
@@ -141,10 +129,9 @@ async def create_repository(
 async def delete_repository(
     workspace_id: uuid.UUID,
     repository_id: uuid.UUID,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(WorkspaceRole.OWNER, WorkspaceRole.ADMIN),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = RepositoryRepository(db)
     record = await repo.get_repository_for_workspace(repository_id, workspace_id)
     if record is None:

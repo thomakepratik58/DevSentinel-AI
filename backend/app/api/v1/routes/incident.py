@@ -21,26 +21,14 @@ from app.api.v1.schemas.incident import (
 )
 from app.core.errors import NotFoundError
 from app.db.engine import get_db
-from app.models.enums import IncidentSeverity, IncidentStatus
+from app.models.enums import IncidentSeverity, IncidentStatus, WorkspaceRole
 from app.repositories.incident_repo import IncidentRepository
-from app.repositories.workspace_repo import WorkspaceRepository
+from app.repositories.repository_repo import RepositoryRepository
 
 router = APIRouter()
 
 
-# ── Helpers ──────────────────────────────────────────────────────
-
-
-async def _verify_workspace_membership(
-    workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
-    db: AsyncSession,
-) -> None:
-    """Raise NotFoundError if the user is not a member of the workspace."""
-    ws_repo = WorkspaceRepository(db)
-    ws = await ws_repo.get_workspace_for_user(workspace_id, user_id)
-    if ws is None:
-        raise NotFoundError("Workspace", str(workspace_id))
+from app.api.v1.dependencies.rbac import require_role
 
 
 def _to_severity(value: str) -> IncidentSeverity:
@@ -71,10 +59,11 @@ def _to_status(value: str) -> IncidentStatus:
 )
 async def list_incidents(
     workspace_id: uuid.UUID,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER, WorkspaceRole.VIEWER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> IncidentListResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = IncidentRepository(db)
     incidents = await repo.list_incidents_by_workspace(workspace_id)
     return IncidentListResponse(
@@ -96,10 +85,11 @@ async def list_incidents(
 async def get_incident(
     workspace_id: uuid.UUID,
     incident_id: uuid.UUID,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER, WorkspaceRole.VIEWER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> IncidentResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = IncidentRepository(db)
     record = await repo.get_incident_for_workspace(incident_id, workspace_id)
     if record is None:
@@ -124,9 +114,17 @@ async def create_incident(
     workspace_id: uuid.UUID,
     payload: CreateIncidentRequest,
     current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> IncidentResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
+    if payload.repository_id:
+        repo_repo = RepositoryRepository(db)
+        repo = await repo_repo.get_repository_for_workspace(payload.repository_id, workspace_id)
+        if repo is None:
+            raise NotFoundError("Repository", str(payload.repository_id))
+
     repo = IncidentRepository(db)
     severity = _to_severity(payload.severity)
 
@@ -159,10 +157,11 @@ async def update_incident(
     workspace_id: uuid.UUID,
     incident_id: uuid.UUID,
     payload: UpdateIncidentRequest,
-    current_user: CurrentUserDep,
+    _role: WorkspaceRole = require_role(
+        WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.DEVELOPER
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> IncidentResponse:
-    await _verify_workspace_membership(workspace_id, current_user.id, db)
     repo = IncidentRepository(db)
     record = await repo.get_incident_for_workspace(incident_id, workspace_id)
     if record is None:

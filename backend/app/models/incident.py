@@ -19,24 +19,11 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import (
-    AnalysisRunStatus,
-    AnalysisStepStatus,
-    AnalysisStepType,
-    EvidenceType,
-    IncidentSeverity,
-    IncidentStatus,
-    PatchSetStatus,
-    SandboxRunStatus,
-)
+from app.models.enums import IncidentSeverity, IncidentStatus
 
 
 class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A production incident attached to a workspace.
-
-    Users paste logs, stack traces, and descriptions.  AI analysis runs
-    are launched from an incident to determine root cause.
-    """
+    """A production incident attached to a workspace."""
 
     __tablename__ = "incidents"
 
@@ -45,174 +32,178 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    repository_id: Mapped[uuid.UUID | None] = mapped_column(
+    repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("repositories.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    created_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
+        ForeignKey("repositories.id", ondelete="CASCADE"),
         nullable=False,
     )
-    title: Mapped[str] = mapped_column(String(512), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[IncidentSeverity] = mapped_column(
         nullable=False, default=IncidentSeverity.MEDIUM
     )
     status: Mapped[IncidentStatus] = mapped_column(
-        nullable=False, default=IncidentStatus.OPEN
+        nullable=False, default=IncidentStatus.DRAFT
     )
-    raw_logs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    environment: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="unknown"
+    )
+    expected_behavior: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_behavior: Mapped[str | None] = mapped_column(Text, nullable=True)
     stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(
+    logs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reproduction_steps: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='[]'
+    )
+    final_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default='{}'
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     # ── relationships ────────────────────────────────────────────
     workspace: Mapped["Workspace"] = relationship(lazy="joined")
-    repository: Mapped["Repository | None"] = relationship(lazy="joined")
+    repository: Mapped["Repository"] = relationship(lazy="joined")
     created_by: Mapped["User"] = relationship(lazy="joined")
-    analysis_runs: Mapped[list[AnalysisRun]] = relationship(
+    agent_runs: Mapped[list[AgentRun]] = relationship(
         back_populates="incident",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
 
     __table_args__ = (
-        Index("ix_incidents_workspace_id", "workspace_id"),
-        Index("ix_incidents_status", "status"),
-        Index("ix_incidents_severity", "severity"),
-        Index("ix_incidents_created_by", "created_by_id"),
+        Index("ix_incidents_workspace_status", "workspace_id", "status"),
+        Index("ix_incidents_repo_created", "repository_id", "created_at"),
     )
 
 
-class AnalysisRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """An AI-driven analysis run on an incident.
+class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """An AI-driven agent run on an incident."""
 
-    Each run progresses through multiple steps (evidence gathering →
-    root cause → fix generation → validation).
-    """
-
-    __tablename__ = "analysis_runs"
+    __tablename__ = "agent_runs"
 
     incident_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("incidents.id", ondelete="CASCADE"),
         nullable=False,
     )
-    triggered_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
+    run_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="queued"
     )
-    status: Mapped[AnalysisRunStatus] = mapped_column(
-        nullable=False, default=AnalysisRunStatus.QUEUED
-    )
+    model_name: Mapped[str] = mapped_column(Text, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    root_cause: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confidence_score: Mapped[float | None] = mapped_column(
-        Float, nullable=True
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_snapshot: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='{}'
     )
-    model_used: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    output: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='{}'
+    )
+    token_usage: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='{}'
+    )
 
     # ── relationships ────────────────────────────────────────────
-    incident: Mapped[Incident] = relationship(back_populates="analysis_runs")
-    triggered_by: Mapped["User"] = relationship(lazy="joined")
-    steps: Mapped[list[AnalysisStep]] = relationship(
-        back_populates="analysis_run",
+    incident: Mapped[Incident] = relationship(back_populates="agent_runs")
+    steps: Mapped[list[AgentStep]] = relationship(
+        back_populates="agent_run",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    evidence_items: Mapped[list[EvidenceItem]] = relationship(
-        back_populates="analysis_run",
+    retrieval_results: Mapped[list[RetrievalResult]] = relationship(
+        back_populates="agent_run",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
     patch_sets: Mapped[list[PatchSet]] = relationship(
-        back_populates="analysis_run",
+        back_populates="agent_run",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
 
     __table_args__ = (
-        Index("ix_analysis_runs_incident_id", "incident_id"),
-        Index("ix_analysis_runs_status", "status"),
+        Index("ix_agent_runs_incident_id", "incident_id"),
     )
 
 
-class AnalysisStep(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Individual reasoning step within an analysis run."""
+class AgentStep(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Individual reasoning step within an agent run."""
 
-    __tablename__ = "analysis_steps"
+    __tablename__ = "agent_steps"
 
-    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+    run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("analysis_runs.id", ondelete="CASCADE"),
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    step_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    step_type: Mapped[AnalysisStepType] = mapped_column(nullable=False)
-    status: Mapped[AnalysisStepStatus] = mapped_column(
-        nullable=False, default=AnalysisStepStatus.PENDING
+    step_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="queued"
     )
-    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
-    output_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_data: Mapped[dict] = mapped_column(
+        "input", JSONB, nullable=False, server_default='{}'
+    )
+    output_data: Mapped[dict] = mapped_column(
+        "output", JSONB, nullable=False, server_default='{}'
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── relationships ────────────────────────────────────────────
-    analysis_run: Mapped[AnalysisRun] = relationship(back_populates="steps")
+    agent_run: Mapped[AgentRun] = relationship(back_populates="steps")
 
     __table_args__ = (
-        Index("ix_analysis_steps_run_id", "analysis_run_id"),
+        Index("ix_agent_steps_run_sequence", "run_id", "sequence_number", unique=True),
     )
 
 
-class EvidenceItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A piece of evidence collected during an analysis run."""
+class RetrievalResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Chunks retrieved by the agent run."""
 
-    __tablename__ = "evidence_items"
+    __tablename__ = "retrieval_results"
 
-    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+    run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("analysis_runs.id", ondelete="CASCADE"),
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    evidence_type: Mapped[EvidenceType] = mapped_column(nullable=False)
-    title: Mapped[str] = mapped_column(String(512), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_lines: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("code_chunks.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    relevance_score: Mapped[float | None] = mapped_column(
-        Float, nullable=True
-    )
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
-    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    vector_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    keyword_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rerank_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── relationships ────────────────────────────────────────────
-    analysis_run: Mapped[AnalysisRun] = relationship(
-        back_populates="evidence_items"
-    )
-
+    agent_run: Mapped[AgentRun] = relationship(back_populates="retrieval_results")
+    
     __table_args__ = (
-        Index("ix_evidence_items_run_id", "analysis_run_id"),
-        Index("ix_evidence_items_type", "evidence_type"),
+        Index("ix_retrieval_results_run_chunk", "run_id", "chunk_id", unique=True),
+        Index("ix_retrieval_results_run_rank", "run_id", "rank"),
     )
 
 
@@ -221,33 +212,41 @@ class PatchSet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __tablename__ = "patch_sets"
 
-    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+    incident_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("analysis_runs.id", ondelete="CASCADE"),
+        ForeignKey("incidents.id", ondelete="CASCADE"),
         nullable=False,
     )
-    status: Mapped[PatchSetStatus] = mapped_column(
-        nullable=False, default=PatchSetStatus.DRAFT
-    )
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    diff_content: Mapped[str] = mapped_column(Text, nullable=False)
-    files_changed: Mapped[int] = mapped_column(
-        Integer, server_default="0", nullable=False
-    )
-    applied_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    applied_by_id: Mapped[uuid.UUID | None] = mapped_column(
+    run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="draft"
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    unified_diff: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_errors: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='[]'
+    )
+    risk_level: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default='medium'
+    )
+    created_by: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default='ai'
     )
 
     # ── relationships ────────────────────────────────────────────
-    analysis_run: Mapped[AnalysisRun] = relationship(
+    agent_run: Mapped[AgentRun] = relationship(
         back_populates="patch_sets"
     )
-    applied_by: Mapped["User | None"] = relationship(lazy="joined")
+    patch_files: Mapped[list[PatchFile]] = relationship(
+        back_populates="patch_set",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     sandbox_runs: Mapped[list[SandboxRun]] = relationship(
         back_populates="patch_set",
         cascade="all, delete-orphan",
@@ -255,9 +254,27 @@ class PatchSet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     __table_args__ = (
-        Index("ix_patch_sets_run_id", "analysis_run_id"),
-        Index("ix_patch_sets_status", "status"),
+        Index("ix_patch_sets_incident", "incident_id"),
     )
+
+
+class PatchFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """File modifications within a patch set."""
+
+    __tablename__ = "patch_files"
+
+    patch_set_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patch_sets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    old_content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    patch_set: Mapped[PatchSet] = relationship(back_populates="patch_files")
 
 
 class SandboxRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -270,24 +287,25 @@ class SandboxRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("patch_sets.id", ondelete="CASCADE"),
         nullable=False,
     )
-    status: Mapped[SandboxRunStatus] = mapped_column(
-        nullable=False, default=SandboxRunStatus.QUEUED
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="queued"
     )
+    command: Mapped[str] = mapped_column(Text, nullable=False)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
     stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # ── relationships ────────────────────────────────────────────
     patch_set: Mapped[PatchSet] = relationship(back_populates="sandbox_runs")
 
     __table_args__ = (
         Index("ix_sandbox_runs_patch_set_id", "patch_set_id"),
-        Index("ix_sandbox_runs_status", "status"),
     )

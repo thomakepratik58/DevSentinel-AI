@@ -14,112 +14,63 @@ class WorkspaceRole(str, enum.Enum):
 
     OWNER = "owner"
     ADMIN = "admin"
-    MEMBER = "member"
+    DEVELOPER = "developer"
     VIEWER = "viewer"
-
-
-class OAuthProvider(str, enum.Enum):
-    """Supported OAuth identity providers."""
-
-    GITHUB = "github"
-    GOOGLE = "google"
 
 
 class RepositoryStatus(str, enum.Enum):
     """Lifecycle status of a connected repository."""
 
-    PENDING = "pending"
-    INDEXING = "indexing"
-    READY = "ready"
-    ERROR = "error"
-    ARCHIVED = "archived"
-
-
-class ImportJobStatus(str, enum.Enum):
-    """Status of a repository import / re-index job."""
-
     QUEUED = "queued"
-    RUNNING = "running"
-    COMPLETED = "completed"
+    CLONING = "cloning"
+    SCANNING = "scanning"
+    EMBEDDING = "embedding"
+    PARTIAL_READY = "partial_ready"
+    READY = "ready"
     FAILED = "failed"
 
 
 class IncidentSeverity(str, enum.Enum):
     """Severity classification for an incident."""
 
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
     LOW = "low"
-    INFO = "info"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 class IncidentStatus(str, enum.Enum):
     """Workflow status of an incident."""
 
-    OPEN = "open"
-    INVESTIGATING = "investigating"
+    DRAFT = "draft"
+    QUEUED = "queued"
+    ANALYZING = "analyzing"
+    ANALYZED = "analyzed"
+    PATCHING = "patching"
+    TESTING = "testing"
     RESOLVED = "resolved"
-    CLOSED = "closed"
+    FAILED = "failed"
 
 
-class AnalysisRunStatus(str, enum.Enum):
-    """Status of an AI analysis run."""
+class RunStatus(str, enum.Enum):
+    """Status of an AI agent or sandbox run."""
 
     QUEUED = "queued"
     RUNNING = "running"
-    COMPLETED = "completed"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
-class AnalysisStepType(str, enum.Enum):
-    """Kind of reasoning step within an analysis run."""
-
-    EVIDENCE_GATHERING = "evidence_gathering"
-    ROOT_CAUSE_ANALYSIS = "root_cause_analysis"
-    FIX_GENERATION = "fix_generation"
-    VALIDATION = "validation"
-
-
-class AnalysisStepStatus(str, enum.Enum):
-    """Completion status of an individual analysis step."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-
-
-class EvidenceType(str, enum.Enum):
-    """Category of evidence collected during analysis."""
-
-    LOG_SNIPPET = "log_snippet"
-    STACK_TRACE = "stack_trace"
-    CODE_REFERENCE = "code_reference"
-    CONFIGURATION = "configuration"
-    METRIC = "metric"
-    EXTERNAL_LINK = "external_link"
-
-
-class PatchSetStatus(str, enum.Enum):
+class PatchStatus(str, enum.Enum):
     """Status of a generated patch set."""
 
     DRAFT = "draft"
-    VALIDATED = "validated"
-    APPLIED = "applied"
+    VALIDATING = "validating"
+    VALID = "valid"
+    INVALID = "invalid"
+    ACCEPTED = "accepted"
     REJECTED = "rejected"
-
-
-class SandboxRunStatus(str, enum.Enum):
-    """Status of a sandbox validation run."""
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    PASSED = "passed"
-    FAILED = "failed"
-    ERROR = "error"
 
 
 class AuditAction(str, enum.Enum):

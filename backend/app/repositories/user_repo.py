@@ -94,6 +94,15 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def find_revoked_refresh_token(self, token_hash: str) -> RefreshToken | None:
+        """Return a refresh token record only if it exists and is revoked."""
+        stmt = select(RefreshToken).where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked_at.is_not(None),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def revoke_refresh_token(self, token_hash: str) -> None:
         """Mark a single refresh token as revoked."""
         stmt = (

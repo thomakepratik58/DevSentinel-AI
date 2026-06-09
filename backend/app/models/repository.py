@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
@@ -14,21 +18,16 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import ImportJobStatus, RepositoryStatus
+from app.models.enums import RepositoryStatus
 
 
 class Repository(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A connected source-code repository.
-
-    Repositories belong to a workspace and are the context for code
-    indexing, incident analysis, and patch generation.
-    """
+    """A connected source-code repository."""
 
     __tablename__ = "repositories"
 
@@ -37,20 +36,31 @@ class Repository(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    full_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    clone_url: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    remote_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_branch: Mapped[str] = mapped_column(
-        String(255), server_default="main", nullable=False
+        Text, server_default="main", nullable=False
     )
-    status: Mapped[RepositoryStatus] = mapped_column(
-        nullable=False, default=RepositoryStatus.PENDING
+    latest_commit_sha: Mapped[str | None] = mapped_column(Text, nullable=True)
+    index_status: Mapped[RepositoryStatus] = mapped_column(
+        nullable=False, default=RepositoryStatus.QUEUED
     )
-    last_indexed_at: Mapped[datetime | None] = mapped_column(
+    index_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indexed_file_count: Mapped[int] = mapped_column(
+        Integer, server_default="0", nullable=False
+    )
+    indexed_chunk_count: Mapped[int] = mapped_column(
+        Integer, server_default="0", nullable=False
+    )
+    partial_index: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", nullable=False
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default='{}'
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
-    )
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
     )
 
     # ── relationships ────────────────────────────────────────────
@@ -60,29 +70,14 @@ class Repository(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    import_jobs: Mapped[list[RepositoryImportJob]] = relationship(
-        back_populates="repository",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
 
     __table_args__ = (
         Index("ix_repositories_workspace_id", "workspace_id"),
-        Index(
-            "ix_repositories_ws_fullname",
-            "workspace_id",
-            "full_name",
-            unique=True,
-        ),
     )
 
 
 class RepositoryFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A single file tracked within a repository.
-
-    Stores path, language, and size metadata.  Content is not stored
-    in this table — parsed chunks live in ``code_chunks``.
-    """
+    """A single file tracked within a repository."""
 
     __tablename__ = "repository_files"
 
@@ -91,10 +86,23 @@ class RepositoryFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("repositories.id", ondelete="CASCADE"),
         nullable=False,
     )
-    file_path: Mapped[str] = mapped_column(Text, nullable=False)
-    language: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="unknown"
+    )
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_test: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", nullable=False
+    )
+    is_binary: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", nullable=False
+    )
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default='{}'
+    )
 
     # ── relationships ────────────────────────────────────────────
     repository: Mapped[Repository] = relationship(back_populates="files")
@@ -105,82 +113,122 @@ class RepositoryFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     __table_args__ = (
-        Index("ix_repository_files_repo_id", "repository_id"),
         Index(
             "ix_repository_files_repo_path",
             "repository_id",
-            "file_path",
+            "path",
             unique=True,
         ),
     )
 
 
-class RepositoryImportJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Tracks a repository import / re-index operation."""
+class CodeSymbol(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A semantic symbol (function, class, etc.) extracted from code."""
 
-    __tablename__ = "repository_import_jobs"
+    __tablename__ = "code_symbols"
 
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("repositories.id", ondelete="CASCADE"),
         nullable=False,
     )
-    status: Mapped[ImportJobStatus] = mapped_column(
-        nullable=False, default=ImportJobStatus.QUEUED
-    )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    files_processed: Mapped[int] = mapped_column(
-        Integer, server_default="0", nullable=False
-    )
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # ── relationships ────────────────────────────────────────────
-    repository: Mapped[Repository] = relationship(back_populates="import_jobs")
-
-    __table_args__ = (
-        Index("ix_import_jobs_repo_id", "repository_id"),
-        Index("ix_import_jobs_status", "status"),
-    )
-
-
-class CodeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A semantic chunk of source code, ready for embedding.
-
-    The ``embedding`` column is structured for pgvector but real
-    embedding generation is deferred to a future milestone.
-    The column stores a plain ``JSONB`` array of floats for now;
-    the migration to a true ``vector(N)`` column will happen when
-    pgvector embedding pipelines are implemented.
-    """
-
-    __tablename__ = "code_chunks"
-
     file_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("repository_files.id", ondelete="CASCADE"),
         nullable=False,
     )
-    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol_name: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol_type: Mapped[str] = mapped_column(Text, nullable=False)
     start_line: Mapped[int] = mapped_column(Integer, nullable=False)
     end_line: Mapped[int] = mapped_column(Integer, nullable=False)
-    symbol_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    symbol_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    language: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parent_symbol_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("code_symbols.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docstring: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default='{}'
+    )
 
-    # pgvector-ready: stored as JSONB float array until real embeddings
-    embedding: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    __table_args__ = (
+        Index("ix_code_symbols_repo_name", "repository_id", "symbol_name"),
+    )
+
+
+class CodeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A semantic chunk of source code, ready for embedding."""
+
+    __tablename__ = "code_chunks"
+
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("repositories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("repository_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    symbol_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("code_symbols.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_type: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    start_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    search_vector: Mapped[Any] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', content)"),
+        nullable=True,
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default='{}'
+    )
 
     # ── relationships ────────────────────────────────────────────
     file: Mapped[RepositoryFile] = relationship(back_populates="chunks")
+    chunk_embedding: Mapped["ChunkEmbedding"] = relationship(
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        uselist=False,
+    )
 
     __table_args__ = (
-        Index("ix_code_chunks_file_id", "file_id"),
-        Index("ix_code_chunks_symbol", "symbol_name"),
+        Index("ix_code_chunks_repo_file", "repository_id", "file_id"),
+        Index("ix_code_chunks_search", "search_vector", postgresql_using="gin"),
+        Index("ix_code_chunks_path_trgm", "path", postgresql_ops={"path": "gin_trgm_ops"}, postgresql_using="gin"),
+        Index("ix_code_chunks_file_chunk", "file_id", "chunk_index", unique=True),
     )
+
+
+class ChunkEmbedding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Stores the pgvector embedding for a specific CodeChunk."""
+
+    __tablename__ = "chunk_embeddings"
+
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("code_chunks.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("repositories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    embedding_model: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[Any] = mapped_column(Vector(3072), nullable=False)
+
+    chunk: Mapped[CodeChunk] = relationship(back_populates="chunk_embedding")

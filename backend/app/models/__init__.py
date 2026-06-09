@@ -11,15 +11,17 @@ from app.models.workspace import Workspace, WorkspaceMember  # noqa: F401
 from app.models.repository import (  # noqa: F401
     Repository,
     RepositoryFile,
-    RepositoryImportJob,
+    CodeSymbol,
     CodeChunk,
+    ChunkEmbedding,
 )
 from app.models.incident import (  # noqa: F401
     Incident,
-    AnalysisRun,
-    AnalysisStep,
-    EvidenceItem,
+    AgentRun,
+    AgentStep,
+    RetrievalResult,
     PatchSet,
+    PatchFile,
     SandboxRun,
 )
 from app.models.audit import AuditEvent  # noqa: F401
