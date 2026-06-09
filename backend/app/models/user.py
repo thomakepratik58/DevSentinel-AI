@@ -18,28 +18,27 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import OAuthProvider
+
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Application user.
-
-    Users authenticate via OAuth (GitHub / Google) or email+password.
-    A user can belong to many workspaces through ``WorkspaceMember``.
-    """
+    """Application user."""
 
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(
         String(320), unique=True, nullable=False
     )
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, server_default="true", nullable=False
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -60,10 +59,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class OAuthAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Linked OAuth identity for a user.
-
-    Schema only — no real OAuth flow is implemented yet.
-    """
+    """Linked OAuth identity for a user."""
 
     __tablename__ = "oauth_accounts"
 
@@ -72,12 +68,14 @@ class OAuthAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    provider: Mapped[OAuthProvider] = mapped_column(nullable=False)
-    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    provider_username: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_email: Mapped[str] = mapped_column(Text, nullable=False)
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── relationships ────────────────────────────────────────────
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
@@ -93,10 +91,7 @@ class OAuthAccount(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class RefreshToken(UUIDPrimaryKeyMixin, Base):
-    """JWT refresh token record.
-
-    Stored server-side to support revocation and token rotation.
-    """
+    """JWT refresh token record."""
 
     __tablename__ = "refresh_tokens"
 
@@ -106,8 +101,10 @@ class RefreshToken(UUIDPrimaryKeyMixin, Base):
         nullable=False,
     )
     token_hash: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False
+        Text, unique=True, nullable=False
     )
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

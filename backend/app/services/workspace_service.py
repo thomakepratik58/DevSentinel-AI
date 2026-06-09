@@ -26,4 +26,4 @@ class WorkspaceService:
         return await self._repo.get_by_slug(slug)
 
     async def list_for_user(self, user_id: uuid.UUID) -> list[Workspace]:
-        return await self._repo.list_for_user(user_id)
+        return await self._repo.list_workspaces_for_user(user_id)

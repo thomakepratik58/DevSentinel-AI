@@ -13,7 +13,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -21,26 +21,27 @@ from app.models.enums import WorkspaceRole
 
 
 class Workspace(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A workspace groups repositories, incidents, and members.
-
-    Every user action happens within the context of a workspace.
-    """
+    """A workspace groups repositories, incidents, and members."""
 
     __tablename__ = "workspaces"
 
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     slug: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False
+        Text, unique=True, nullable=False
     )
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    owner_id: Mapped[uuid.UUID] = mapped_column(
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
+        ForeignKey("users.id"),
         nullable=False,
+    )
+    settings: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default='{}'
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     # ── relationships ────────────────────────────────────────────
-    owner: Mapped["User"] = relationship(lazy="joined")
     members: Mapped[list[WorkspaceMember]] = relationship(
         back_populates="workspace",
         cascade="all, delete-orphan",
@@ -54,7 +55,6 @@ class Workspace(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __table_args__ = (
         Index("ix_workspaces_slug", "slug"),
-        Index("ix_workspaces_owner_id", "owner_id"),
     )
 
 
@@ -74,10 +74,7 @@ class WorkspaceMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     role: Mapped[WorkspaceRole] = mapped_column(
-        nullable=False, default=WorkspaceRole.MEMBER
-    )
-    invited_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        nullable=False, default=WorkspaceRole.DEVELOPER
     )
 
     # ── relationships ────────────────────────────────────────────
@@ -91,4 +88,5 @@ class WorkspaceMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "user_id",
             unique=True,
         ),
+        Index("ix_workspace_members_user", "user_id"),
     )

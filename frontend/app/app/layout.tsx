@@ -1,9 +1,14 @@
-import { AppShell } from "@/components/layout/AppShell";
+/**
+ * Legacy app layout — this route is superseded by the (dashboard) group.
+ * Redirects to the primary dashboard automatically.
+ */
 
-export default function DashboardLayout({
+import { redirect } from "next/navigation"
+
+export default function LegacyAppLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
 }) {
-  return <AppShell>{children}</AppShell>;
+  redirect("/app/dashboard")
 }
